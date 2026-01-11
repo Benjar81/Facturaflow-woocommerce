@@ -23,52 +23,87 @@ class WCAFIP_Admin {
     private function __construct() {
         $this->init_hooks();
     }
-    
+
     private function init_hooks() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
         add_filter('plugin_action_links_' . WCAFIP_PLUGIN_BASENAME, array($this, 'add_action_links'));
     }
-    
+
+    /**
+     * Verificar si la licencia es válida
+     */
+    private function is_license_valid() {
+        if (class_exists('WCAFIP_License')) {
+            $license = WCAFIP_License::get_instance();
+            return $license->is_license_valid();
+        }
+        return false;
+    }
+
     /**
      * Agregar menú de administración
      */
     public function add_admin_menu() {
+        // Menú principal - siempre visible
         add_menu_page(
             __('AFIP Facturación', 'wc-afip-facturacion'),
             __('AFIP Facturación', 'wc-afip-facturacion'),
             'manage_woocommerce',
-            'wcafip-facturas',
-            array($this, 'render_facturas_page'),
+            'wcafip-facturacion',
+            array($this, 'render_main_page'),
             'dashicons-media-spreadsheet',
             56
         );
-        
+
+        // Si no hay licencia válida, solo mostrar página de licencia
+        if (!$this->is_license_valid()) {
+            add_submenu_page(
+                'wcafip-facturacion',
+                __('Licencia', 'wc-afip-facturacion'),
+                __('Activar Licencia', 'wc-afip-facturacion'),
+                'manage_woocommerce',
+                'wcafip-facturacion',
+                array($this, 'render_license_page')
+            );
+            return;
+        }
+
+        // Submenús (solo con licencia válida)
         add_submenu_page(
-            'wcafip-facturas',
+            'wcafip-facturacion',
             __('Facturas', 'wc-afip-facturacion'),
             __('Facturas', 'wc-afip-facturacion'),
             'manage_woocommerce',
-            'wcafip-facturas',
+            'wcafip-facturacion',
             array($this, 'render_facturas_page')
         );
-        
+
         add_submenu_page(
-            'wcafip-facturas',
+            'wcafip-facturacion',
             __('Configuración', 'wc-afip-facturacion'),
             __('Configuración', 'wc-afip-facturacion'),
             'manage_woocommerce',
             'wcafip-settings',
             array($this, 'render_settings_page')
         );
-        
+
         add_submenu_page(
-            'wcafip-facturas',
+            'wcafip-facturacion',
             __('Logs', 'wc-afip-facturacion'),
             __('Logs', 'wc-afip-facturacion'),
             'manage_woocommerce',
             'wcafip-logs',
             array($this, 'render_logs_page')
+        );
+
+        add_submenu_page(
+            'wcafip-facturacion',
+            __('Licencia', 'wc-afip-facturacion'),
+            __('Licencia', 'wc-afip-facturacion'),
+            'manage_woocommerce',
+            'wcafip-license',
+            array($this, 'render_license_page')
         );
     }
     
@@ -108,11 +143,40 @@ class WCAFIP_Admin {
      * Agregar enlaces de acción
      */
     public function add_action_links($links) {
-        $plugin_links = array(
-            '<a href="' . admin_url('admin.php?page=wcafip-settings') . '">' . __('Configuración', 'wc-afip-facturacion') . '</a>',
-        );
-        
+        if ($this->is_license_valid()) {
+            $plugin_links = array(
+                '<a href="' . admin_url('admin.php?page=wcafip-settings') . '">' . __('Configuración', 'wc-afip-facturacion') . '</a>',
+            );
+        } else {
+            $plugin_links = array(
+                '<a href="' . admin_url('admin.php?page=wcafip-facturacion') . '" style="color: #d63638; font-weight: bold;">' . __('Activar Licencia', 'wc-afip-facturacion') . '</a>',
+            );
+        }
+
         return array_merge($plugin_links, $links);
+    }
+
+    /**
+     * Render página principal
+     */
+    public function render_main_page() {
+        if (!$this->is_license_valid()) {
+            $this->render_license_page();
+        } else {
+            $this->render_facturas_page();
+        }
+    }
+
+    /**
+     * Render página de licencia
+     */
+    public function render_license_page() {
+        if (class_exists('WCAFIP_License')) {
+            WCAFIP_License::get_instance()->render_license_page();
+        } else {
+            echo '<div class="wrap"><h1>' . __('Error', 'wc-afip-facturacion') . '</h1>';
+            echo '<p>' . __('No se pudo cargar el módulo de licencias.', 'wc-afip-facturacion') . '</p></div>';
+        }
     }
     
     /**
