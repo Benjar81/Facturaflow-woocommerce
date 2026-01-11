@@ -414,11 +414,8 @@ class WCAFIP_Facturador {
             return;
         }
 
-        // URLs de la API (primaria y fallback)
-        $api_urls = array(
-            'https://facturaflow.net/api/license/invoice-sync',
-            'https://facturaflow-production.up.railway.app/api/license/invoice-sync'
-        );
+        // URL de la API
+        $api_url = 'https://facturaflow.net/api/license/invoice-sync';
 
         // Obtener dominio del sitio
         $domain = $this->get_site_domain();
@@ -476,33 +473,30 @@ class WCAFIP_Facturador {
             )
         );
 
-        // Intentar con cada URL
-        foreach ($api_urls as $api_url) {
-            $response = wp_remote_post($api_url, array(
-                'timeout' => 15,
-                'headers' => array(
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json'
-                ),
-                'body' => json_encode($invoice_data)
-            ));
+        // Enviar factura a FacturaFlow
+        $response = wp_remote_post($api_url, array(
+            'timeout' => 15,
+            'headers' => array(
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json'
+            ),
+            'body' => json_encode($invoice_data)
+        ));
 
-            // Si la solicitud fue exitosa, terminar
-            if (!is_wp_error($response)) {
-                $http_code = wp_remote_retrieve_response_code($response);
-                if ($http_code === 200 || $http_code === 201) {
-                    $body = json_decode(wp_remote_retrieve_body($response), true);
-                    $this->logger->info(
-                        sprintf('Factura sincronizada con FacturaFlow. ID: %s', $body['invoice_id'] ?? 'N/A'),
-                        $order->get_id()
-                    );
-                    return;
-                }
+        // Verificar respuesta
+        if (!is_wp_error($response)) {
+            $http_code = wp_remote_retrieve_response_code($response);
+            if ($http_code === 200 || $http_code === 201) {
+                $body = json_decode(wp_remote_retrieve_body($response), true);
+                $this->logger->info(
+                    sprintf('Factura sincronizada con FacturaFlow. ID: %s', $body['invoice_id'] ?? 'N/A'),
+                    $order->get_id()
+                );
+                return;
             }
-            // Si falló, intentar con la siguiente URL
         }
 
-        // Si ninguna URL funcionó, loguear el error
+        // Si falló, loguear el error
         $this->logger->warning('No se pudo sincronizar la factura con FacturaFlow', $order->get_id());
     }
 
