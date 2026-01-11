@@ -17,12 +17,9 @@ class WCAFIP_License {
     private static $instance = null;
 
     /**
-     * URLs de la API de licencias (primaria y fallback)
+     * URLs de la API de licencias
      */
-    const LICENSE_API_URLS = array(
-        'https://facturaflow.net/api/license',
-        'https://facturaflow-production.up.railway.app/api/license'
-    );
+    const LICENSE_API_URL = 'https://facturaflow.net/api/license';
 
     /**
      * Nombre de la opción de licencia
@@ -302,59 +299,47 @@ class WCAFIP_License {
     }
 
     /**
-     * Realizar solicitud a la API (intenta con múltiples URLs)
+     * Realizar solicitud a la API
      */
     private function api_request($action, $data) {
-        $last_error = null;
+        $url = self::LICENSE_API_URL . '/' . $action;
 
-        // Intentar con cada URL disponible
-        foreach (self::LICENSE_API_URLS as $base_url) {
-            $url = $base_url . '/' . $action;
+        $response = wp_remote_post($url, array(
+            'timeout' => 30,
+            'headers' => array(
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json'
+            ),
+            'body' => json_encode($data)
+        ));
 
-            $response = wp_remote_post($url, array(
-                'timeout' => 30,
-                'headers' => array(
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json'
-                ),
-                'body' => json_encode($data)
-            ));
-
-            // Si hay error de conexión, intentar con la siguiente URL
-            if (is_wp_error($response)) {
-                $last_error = $response->get_error_message();
-                continue;
-            }
-
-            $http_code = wp_remote_retrieve_response_code($response);
-            $body = wp_remote_retrieve_body($response);
-            $result = json_decode($body, true);
-
-            // Si el servidor responde con 200 o 201, usar esta respuesta
-            if ($http_code === 200 || $http_code === 201) {
-                return $result;
-            }
-
-            // Para cualquier otro código, obtener el mensaje de error
-            if (is_array($result) && isset($result['message'])) {
-                $last_error = $result['message'];
-            } elseif (is_array($result) && isset($result['error'])) {
-                $last_error = $result['error'];
-            } else {
-                $last_error = sprintf(__('Error del servidor: %s', 'wc-afip-facturacion'), $http_code);
-            }
-
-            // Para errores 4xx (cliente), devolver el error inmediatamente
-            if ($http_code >= 400 && $http_code < 500) {
-                return new WP_Error('api_error', $last_error);
-            }
+        if (is_wp_error($response)) {
+            return new WP_Error(
+                'api_error',
+                __('Error de conexión con el servidor de licencias. Por favor, intenta más tarde.', 'wc-afip-facturacion')
+            );
         }
 
-        // Si ninguna URL funcionó
-        return new WP_Error(
-            'api_error',
-            $last_error ?? __('Error de conexión con el servidor de licencias. Por favor, intenta más tarde.', 'wc-afip-facturacion')
-        );
+        $http_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        $result = json_decode($body, true);
+
+        // Si el servidor responde con 200 o 201, usar esta respuesta
+        if ($http_code === 200 || $http_code === 201) {
+            return $result;
+        }
+
+        // Para cualquier otro código, obtener el mensaje de error
+        $error_message = null;
+        if (is_array($result) && isset($result['message'])) {
+            $error_message = $result['message'];
+        } elseif (is_array($result) && isset($result['error'])) {
+            $error_message = $result['error'];
+        } else {
+            $error_message = sprintf(__('Error del servidor: %s', 'wc-afip-facturacion'), $http_code);
+        }
+
+        return new WP_Error('api_error', $error_message);
     }
 
     /**
