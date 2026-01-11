@@ -45,29 +45,30 @@ class WCAFIP_Admin {
      * Agregar menú de administración
      */
     public function add_admin_menu() {
-        // Menú principal - siempre visible
+        // Si no hay licencia válida, solo mostrar página de licencia
+        if (!$this->is_license_valid()) {
+            add_menu_page(
+                __('AFIP Facturación', 'wc-afip-facturacion'),
+                __('AFIP Facturación', 'wc-afip-facturacion'),
+                'manage_woocommerce',
+                'wcafip-facturacion',
+                array($this, 'render_license_page'),
+                'dashicons-media-spreadsheet',
+                56
+            );
+            return;
+        }
+
+        // Menú principal con licencia válida
         add_menu_page(
             __('AFIP Facturación', 'wc-afip-facturacion'),
             __('AFIP Facturación', 'wc-afip-facturacion'),
             'manage_woocommerce',
             'wcafip-facturacion',
-            array($this, 'render_main_page'),
+            array($this, 'render_facturas_page'),
             'dashicons-media-spreadsheet',
             56
         );
-
-        // Si no hay licencia válida, solo mostrar página de licencia
-        if (!$this->is_license_valid()) {
-            add_submenu_page(
-                'wcafip-facturacion',
-                __('Licencia', 'wc-afip-facturacion'),
-                __('Activar Licencia', 'wc-afip-facturacion'),
-                'manage_woocommerce',
-                'wcafip-facturacion',
-                array($this, 'render_license_page')
-            );
-            return;
-        }
 
         // Submenús (solo con licencia válida)
         add_submenu_page(
@@ -154,17 +155,6 @@ class WCAFIP_Admin {
         }
 
         return array_merge($plugin_links, $links);
-    }
-
-    /**
-     * Render página principal
-     */
-    public function render_main_page() {
-        if (!$this->is_license_valid()) {
-            $this->render_license_page();
-        } else {
-            $this->render_facturas_page();
-        }
     }
 
     /**
