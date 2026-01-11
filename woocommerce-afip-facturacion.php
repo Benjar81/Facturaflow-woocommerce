@@ -1,11 +1,11 @@
 <?php
 /**
- * Plugin Name: WooCommerce AFIP Facturación Electrónica
- * Plugin URI: https://tu-sitio.com/woocommerce-afip
- * Description: Facturación electrónica automática para Argentina. Emite facturas A, B y C directamente desde WooCommerce a AFIP.
+ * Plugin Name: WooCommerce AFIP/ARCA - FacturaFlow
+ * Plugin URI: https://facturaflow.net
+ * Description: Facturación electrónica automática para Argentina. Emite facturas A, B y C directamente desde WooCommerce a AFIP/ARCA.
  * Version: 1.0.0
- * Author: Tu Empresa
- * Author URI: https://tu-sitio.com
+ * Author: FacturaFlow
+ * Author URI: https://facturaflow.net
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: wc-afip-facturacion
