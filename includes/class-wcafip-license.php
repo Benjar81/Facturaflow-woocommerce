@@ -273,15 +273,21 @@ class WCAFIP_License {
             $body = wp_remote_retrieve_body($response);
             $result = json_decode($body, true);
 
-            // Si el servidor responde (aunque sea error), usar esta respuesta
-            if ($http_code === 200) {
+            // Si el servidor responde con 200 o 201, usar esta respuesta
+            if ($http_code === 200 || $http_code === 201) {
                 return $result;
             }
 
-            // Si es error del servidor, guardar mensaje y continuar
-            $last_error = $result['message'] ?? sprintf(__('Error del servidor: %s', 'wc-afip-facturacion'), $http_code);
+            // Para cualquier otro código, obtener el mensaje de error
+            if (is_array($result) && isset($result['message'])) {
+                $last_error = $result['message'];
+            } elseif (is_array($result) && isset($result['error'])) {
+                $last_error = $result['error'];
+            } else {
+                $last_error = sprintf(__('Error del servidor: %s', 'wc-afip-facturacion'), $http_code);
+            }
 
-            // Para errores 4xx (cliente), no intentar otra URL
+            // Para errores 4xx (cliente), devolver el error inmediatamente
             if ($http_code >= 400 && $http_code < 500) {
                 return new WP_Error('api_error', $last_error);
             }
