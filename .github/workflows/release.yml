@@ -1,0 +1,57 @@
+name: Build and Release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create plugin directory
+        run: |
+          mkdir -p build/woocommerce-afip-facturacion
+
+      - name: Copy plugin files
+        run: |
+          # Copy main plugin file
+          cp woocommerce-afip-facturacion.php build/woocommerce-afip-facturacion/
+
+          # Copy directories
+          cp -r includes build/woocommerce-afip-facturacion/
+          cp -r assets build/woocommerce-afip-facturacion/ 2>/dev/null || true
+          cp -r admin build/woocommerce-afip-facturacion/ 2>/dev/null || true
+          cp -r templates build/woocommerce-afip-facturacion/ 2>/dev/null || true
+          cp -r languages build/woocommerce-afip-facturacion/ 2>/dev/null || true
+
+          # Copy additional files if they exist
+          cp readme.txt build/woocommerce-afip-facturacion/ 2>/dev/null || true
+          cp README.md build/woocommerce-afip-facturacion/ 2>/dev/null || true
+          cp LICENSE build/woocommerce-afip-facturacion/ 2>/dev/null || true
+          cp index.php build/woocommerce-afip-facturacion/ 2>/dev/null || true
+
+      - name: Remove development files
+        run: |
+          # Remove git files and development stuff
+          find build/woocommerce-afip-facturacion -name ".git*" -exec rm -rf {} + 2>/dev/null || true
+          find build/woocommerce-afip-facturacion -name "*.md" -exec rm -f {} + 2>/dev/null || true
+          find build/woocommerce-afip-facturacion -name ".DS_Store" -exec rm -f {} + 2>/dev/null || true
+
+      - name: Create ZIP file
+        run: |
+          cd build
+          zip -r woocommerce-afip-facturacion.zip woocommerce-afip-facturacion
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./build/woocommerce-afip-facturacion.zip
+          asset_name: woocommerce-afip-facturacion.zip
+          asset_content_type: application/zip
