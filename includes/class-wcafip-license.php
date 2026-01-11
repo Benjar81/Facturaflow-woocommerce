@@ -17,9 +17,12 @@ class WCAFIP_License {
     private static $instance = null;
 
     /**
-     * URL de la API de licencias
+     * URLs de la API de licencias (primaria y fallback)
      */
-    const LICENSE_API_URL = 'https://facturaflow.net/api/license';
+    const LICENSE_API_URLS = array(
+        'https://facturaflow.net/api/license',
+        'https://facturaflow-production.up.railway.app/api/license'
+    );
 
     /**
      * Nombre de la opción de licencia
@@ -91,6 +94,15 @@ class WCAFIP_License {
     }
 
     /**
+     * Obtener el dominio del sitio (sin protocolo)
+     */
+    private function get_site_domain() {
+        $site_url = home_url();
+        $parsed = parse_url($site_url);
+        return isset($parsed['host']) ? $parsed['host'] : $site_url;
+    }
+
+    /**
      * Activar licencia
      */
     public function activate_license($license_key) {
@@ -103,15 +115,13 @@ class WCAFIP_License {
             );
         }
 
-        // Obtener información del sitio
-        $site_url = home_url();
-        $site_name = get_bloginfo('name');
+        // Obtener dominio del sitio
+        $domain = $this->get_site_domain();
 
         // Realizar solicitud a la API
         $response = $this->api_request('activate', array(
             'license_key' => $license_key,
-            'site_url' => $site_url,
-            'site_name' => $site_name,
+            'domain' => $domain,
             'plugin_version' => WCAFIP_VERSION
         ));
 
@@ -123,7 +133,7 @@ class WCAFIP_License {
         }
 
         if (!empty($response['success']) && $response['success']) {
-            // Guardar datos de licencia
+            // Guardar datos de licencia (usar 'data' de la respuesta)
             update_option(self::LICENSE_KEY_OPTION, $license_key);
             update_option(self::LICENSE_STATUS_OPTION, 'active');
             update_option(self::LICENSE_DATA_OPTION, $response['data'] ?? array());
@@ -158,7 +168,7 @@ class WCAFIP_License {
         // Realizar solicitud a la API
         $response = $this->api_request('deactivate', array(
             'license_key' => $license_key,
-            'site_url' => home_url()
+            'domain' => $this->get_site_domain()
         ));
 
         // Limpiar datos locales independientemente de la respuesta
@@ -197,7 +207,7 @@ class WCAFIP_License {
 
         $response = $this->api_request('check', array(
             'license_key' => $license_key,
-            'site_url' => home_url()
+            'domain' => $this->get_site_domain()
         ));
 
         if (is_wp_error($response)) {
@@ -209,7 +219,9 @@ class WCAFIP_License {
             );
         }
 
-        $status = !empty($response['valid']) ? 'active' : 'inactive';
+        // Verificar respuesta (puede ser 'valid' o 'success')
+        $is_valid = !empty($response['valid']) || !empty($response['success']);
+        $status = $is_valid ? 'active' : 'inactive';
         update_option(self::LICENSE_STATUS_OPTION, $status);
         update_option(self::LICENSE_LAST_CHECK_OPTION, time());
 
@@ -218,7 +230,7 @@ class WCAFIP_License {
         }
 
         return array(
-            'success' => !empty($response['valid']),
+            'success' => $is_valid,
             'status' => $status,
             'message' => $response['message'] ?? '',
             'data' => $response['data'] ?? array()
@@ -233,39 +245,53 @@ class WCAFIP_License {
     }
 
     /**
-     * Realizar solicitud a la API
+     * Realizar solicitud a la API (intenta con múltiples URLs)
      */
     private function api_request($action, $data) {
-        $url = self::LICENSE_API_URL . '/' . $action;
+        $last_error = null;
 
-        $response = wp_remote_post($url, array(
-            'timeout' => 30,
-            'headers' => array(
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json'
-            ),
-            'body' => json_encode($data)
-        ));
+        // Intentar con cada URL disponible
+        foreach (self::LICENSE_API_URLS as $base_url) {
+            $url = $base_url . '/' . $action;
 
-        if (is_wp_error($response)) {
-            return new WP_Error(
-                'api_error',
-                __('Error de conexión con el servidor de licencias. Por favor, intenta más tarde.', 'wc-afip-facturacion')
-            );
+            $response = wp_remote_post($url, array(
+                'timeout' => 30,
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json'
+                ),
+                'body' => json_encode($data)
+            ));
+
+            // Si hay error de conexión, intentar con la siguiente URL
+            if (is_wp_error($response)) {
+                $last_error = $response->get_error_message();
+                continue;
+            }
+
+            $http_code = wp_remote_retrieve_response_code($response);
+            $body = wp_remote_retrieve_body($response);
+            $result = json_decode($body, true);
+
+            // Si el servidor responde (aunque sea error), usar esta respuesta
+            if ($http_code === 200) {
+                return $result;
+            }
+
+            // Si es error del servidor, guardar mensaje y continuar
+            $last_error = $result['message'] ?? sprintf(__('Error del servidor: %s', 'wc-afip-facturacion'), $http_code);
+
+            // Para errores 4xx (cliente), no intentar otra URL
+            if ($http_code >= 400 && $http_code < 500) {
+                return new WP_Error('api_error', $last_error);
+            }
         }
 
-        $http_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $result = json_decode($body, true);
-
-        if ($http_code !== 200) {
-            return new WP_Error(
-                'api_error',
-                $result['message'] ?? sprintf(__('Error del servidor: %s', 'wc-afip-facturacion'), $http_code)
-            );
-        }
-
-        return $result;
+        // Si ninguna URL funcionó
+        return new WP_Error(
+            'api_error',
+            $last_error ?? __('Error de conexión con el servidor de licencias. Por favor, intenta más tarde.', 'wc-afip-facturacion')
+        );
     }
 
     /**
@@ -429,7 +455,23 @@ class WCAFIP_License {
                                     </td>
                                 </tr>
                                 <?php endif; ?>
-                                <?php if (!empty($license_data['activations'])): ?>
+                                <?php if (isset($license_data['activations_max']) || isset($license_data['activations_left'])): ?>
+                                <tr>
+                                    <th><?php _e('Activaciones', 'wc-afip-facturacion'); ?></th>
+                                    <td>
+                                        <?php
+                                        $max = $license_data['activations_max'] ?? 'ilimitado';
+                                        $left = $license_data['activations_left'] ?? 0;
+                                        if (is_numeric($max)) {
+                                            $used = $max - $left;
+                                            echo esc_html($used . ' / ' . $max . ' ' . __('usadas', 'wc-afip-facturacion'));
+                                        } else {
+                                            echo esc_html($max);
+                                        }
+                                        ?>
+                                    </td>
+                                </tr>
+                                <?php elseif (!empty($license_data['activations'])): ?>
                                 <tr>
                                     <th><?php _e('Sitios Activos', 'wc-afip-facturacion'); ?></th>
                                     <td>
