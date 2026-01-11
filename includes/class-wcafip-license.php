@@ -72,11 +72,68 @@ class WCAFIP_License {
     }
 
     /**
-     * Verificar si la licencia es válida
+     * Verificar si la licencia es válida (con verificación periódica cada hora)
      */
     public function is_license_valid() {
         $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
+
+        if ($status === 'active') {
+            $last_check = get_option(self::LICENSE_LAST_CHECK_OPTION, 0);
+            $now = time();
+
+            // Verificar cada 1 hora
+            if (($now - $last_check) > HOUR_IN_SECONDS) {
+                $this->verify_license_remote();
+                $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
+            }
+        }
+
         return $status === 'active';
+    }
+
+    /**
+     * Verificar licencia con el servidor (sin cache)
+     *
+     * @return bool True si la licencia es válida
+     */
+    public function verify_license_remote() {
+        $license_key = $this->get_license_key();
+
+        if (empty($license_key)) {
+            update_option(self::LICENSE_STATUS_OPTION, 'inactive');
+            return false;
+        }
+
+        $response = $this->api_request('check', array(
+            'license_key' => $license_key,
+            'domain' => $this->get_site_domain()
+        ));
+
+        if (is_wp_error($response)) {
+            // En caso de error de conexión, mantener el estado actual
+            // pero actualizar el timestamp para no reintentar inmediatamente
+            update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+            return get_option(self::LICENSE_STATUS_OPTION, 'inactive') === 'active';
+        }
+
+        // Verificar respuesta
+        $is_valid = !empty($response['valid']) || !empty($response['success']);
+
+        if (!$is_valid) {
+            // Licencia inválida, expirada o eliminada
+            update_option(self::LICENSE_STATUS_OPTION, 'inactive');
+            return false;
+        }
+
+        // Actualizar datos locales
+        update_option(self::LICENSE_STATUS_OPTION, 'active');
+        update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+
+        if (!empty($response['data'])) {
+            update_option(self::LICENSE_DATA_OPTION, $response['data']);
+        }
+
+        return true;
     }
 
     /**

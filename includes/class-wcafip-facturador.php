@@ -83,6 +83,14 @@ class WCAFIP_Facturador {
     public function emitir_factura($order) {
         global $wpdb;
 
+        // Verificar licencia antes de emitir factura
+        if (class_exists('WCAFIP_License')) {
+            $license = WCAFIP_License::get_instance();
+            if (!$license->verify_license_remote()) {
+                throw new Exception(__('Licencia inválida o expirada. Por favor verifica tu licencia en FacturaFlow.', 'wc-afip-facturacion'));
+            }
+        }
+
         $this->wsfe = new WCAFIP_WSFE();
         $datos_cliente = $this->get_datos_cliente($order);
         $condicion_emisor = get_option('wcafip_condicion_iva', 'responsable_inscripto');
