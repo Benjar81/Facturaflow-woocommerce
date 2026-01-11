@@ -101,6 +101,9 @@ final class WC_AFIP_Facturacion {
      * Desactivación del plugin
      */
     public function deactivate() {
+        // Limpiar eventos programados de licencia
+        wp_clear_scheduled_hook('wcafip_license_check_event');
+
         flush_rewrite_rules();
     }
     
@@ -205,13 +208,27 @@ final class WC_AFIP_Facturacion {
             add_action('admin_notices', array($this, 'woocommerce_missing_notice'));
             return;
         }
-        
+
         // Cargar traducciones
         load_plugin_textdomain('wc-afip-facturacion', false, dirname(WCAFIP_PLUGIN_BASENAME) . '/languages');
-        
-        // Cargar clases
+
+        // Cargar siempre la clase de licencia
+        require_once WCAFIP_PLUGIN_DIR . 'includes/class-wcafip-license.php';
+        $license = WCAFIP_License::get_instance();
+
+        // Si no hay licencia válida, solo cargar funcionalidad básica de admin
+        if (!$license->is_license_valid()) {
+            if (is_admin()) {
+                // Cargar admin básico para mostrar página de licencia
+                require_once WCAFIP_PLUGIN_DIR . 'includes/admin/class-wcafip-admin.php';
+                WCAFIP_Admin::get_instance();
+            }
+            return;
+        }
+
+        // Cargar clases completas (solo con licencia válida)
         $this->load_classes();
-        
+
         // Inicializar componentes
         $this->init_components();
     }
