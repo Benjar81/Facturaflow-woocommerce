@@ -82,13 +82,13 @@ class WCAFIP_Facturador {
     
     public function emitir_factura($order) {
         global $wpdb;
-        
+
         $this->wsfe = new WCAFIP_WSFE();
         $datos_cliente = $this->get_datos_cliente($order);
         $condicion_emisor = get_option('wcafip_condicion_iva', 'responsable_inscripto');
         $tipo_comprobante = WCAFIP_WSFE::determinar_tipo_factura($condicion_emisor, $datos_cliente['condicion_iva']);
         $importes = $this->calcular_importes($order, $tipo_comprobante);
-        
+
         $datos_factura = array(
             'tipo_comprobante' => $tipo_comprobante,
             'concepto' => $this->get_concepto($order),
@@ -99,24 +99,27 @@ class WCAFIP_Facturador {
             'importe_iva' => $importes['iva'],
             'importe_total' => $importes['total']
         );
-        
+
         $resultado = $this->wsfe->emitir_factura($datos_factura);
         $factura_id = $this->guardar_factura($order->get_id(), $resultado, $datos_cliente, $importes);
-        
+
         $pdf = new WCAFIP_PDF();
         $factura = $this->get_factura($factura_id);
         $pdf_result = $pdf->generar($factura, $order);
-        
+
         $wpdb->update(
             $wpdb->prefix . 'afip_facturas',
             array('pdf_path' => $pdf_result['path']),
             array('id' => $factura_id)
         );
-        
+
         $resultado['factura_id'] = $factura_id;
         $resultado['pdf_url'] = $pdf_result['url'];
         $resultado['pdf_path'] = $pdf_result['path'];
-        
+
+        // Sincronizar factura con FacturaFlow
+        $this->sync_invoice_to_facturaflow($factura, $order, $importes);
+
         return $resultado;
     }
     
@@ -380,5 +383,127 @@ class WCAFIP_Facturador {
             error_log('WCAFIP Error: ' . $e->getMessage());
             wp_send_json_error(array('message' => 'Error: ' . $e->getMessage()));
         }
+    }
+
+    /**
+     * Sincronizar factura con FacturaFlow
+     *
+     * @param object $factura Datos de la factura desde la BD
+     * @param WC_Order $order Objeto del pedido
+     * @param array $importes Importes calculados
+     */
+    private function sync_invoice_to_facturaflow($factura, $order, $importes) {
+        // Verificar si existe la clase de licencia
+        if (!class_exists('WCAFIP_License')) {
+            return;
+        }
+
+        $license = WCAFIP_License::get_instance();
+        $license_key = $license->get_license_key();
+
+        // No sincronizar si no hay licencia válida
+        if (empty($license_key) || !$license->is_license_valid()) {
+            return;
+        }
+
+        // URLs de la API (primaria y fallback)
+        $api_urls = array(
+            'https://facturaflow.net/api/license/invoice-sync',
+            'https://facturaflow-production.up.railway.app/api/license/invoice-sync'
+        );
+
+        // Obtener dominio del sitio
+        $domain = $this->get_site_domain();
+
+        // Obtener letra del tipo de comprobante
+        $tipo_comprobante_letra = WCAFIP_WSFE::get_letra_comprobante($factura->tipo_comprobante);
+
+        // Mapear condición IVA a código corto
+        $condicion_iva_map = array(
+            1 => 'RI',  // Responsable Inscripto
+            4 => 'EX',  // Exento
+            5 => 'CF',  // Consumidor Final
+            6 => 'MT',  // Monotributo
+            8 => 'PC',  // Proveedor del Exterior
+            9 => 'CE',  // Cliente del Exterior
+            10 => 'LI', // Liberado
+            13 => 'MT', // Monotributista Social
+        );
+        $condicion_iva_codigo = $condicion_iva_map[$factura->receptor_condicion_iva] ?? 'CF';
+
+        // Preparar items del pedido
+        $items = array();
+        foreach ($order->get_items() as $item) {
+            $items[] = array(
+                'descripcion' => $item->get_name(),
+                'cantidad' => $item->get_quantity(),
+                'precioUnitario' => round($item->get_total() / $item->get_quantity(), 2),
+                'subtotal' => round($item->get_total(), 2)
+            );
+        }
+
+        // Preparar datos de la factura
+        $invoice_data = array(
+            'license_key' => $license_key,
+            'domain' => $domain,
+            'invoice' => array(
+                'tipo_comprobante' => 'F' . $tipo_comprobante_letra, // FA, FB, FC
+                'punto_venta' => intval($factura->punto_venta),
+                'numero' => intval($factura->numero_comprobante),
+                'cliente_nombre' => $factura->receptor_nombre,
+                'cliente_cuit' => $factura->receptor_cuit,
+                'cliente_dni' => $factura->receptor_dni,
+                'cliente_email' => $order->get_billing_email(),
+                'cliente_domicilio' => $order->get_billing_address_1() . ', ' . $order->get_billing_city(),
+                'cliente_condicion_iva' => $condicion_iva_codigo,
+                'descripcion' => sprintf(__('Pedido WooCommerce #%s', 'wc-afip-facturacion'), $order->get_order_number()),
+                'subtotal' => floatval($factura->importe_neto),
+                'iva' => floatval($factura->importe_iva),
+                'total' => floatval($factura->importe_total),
+                'cae' => $factura->cae,
+                'cae_fecha_venta' => date('Y-m-d', strtotime($factura->fecha_emision)),
+                'status' => 'approved',
+                'external_id' => 'woo_order_' . $order->get_id(),
+                'items' => $items
+            )
+        );
+
+        // Intentar con cada URL
+        foreach ($api_urls as $api_url) {
+            $response = wp_remote_post($api_url, array(
+                'timeout' => 15,
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json'
+                ),
+                'body' => json_encode($invoice_data)
+            ));
+
+            // Si la solicitud fue exitosa, terminar
+            if (!is_wp_error($response)) {
+                $http_code = wp_remote_retrieve_response_code($response);
+                if ($http_code === 200 || $http_code === 201) {
+                    $body = json_decode(wp_remote_retrieve_body($response), true);
+                    $this->logger->info(
+                        sprintf('Factura sincronizada con FacturaFlow. ID: %s', $body['invoice_id'] ?? 'N/A'),
+                        $order->get_id()
+                    );
+                    return;
+                }
+            }
+            // Si falló, intentar con la siguiente URL
+        }
+
+        // Si ninguna URL funcionó, loguear el error
+        $this->logger->warning('No se pudo sincronizar la factura con FacturaFlow', $order->get_id());
+    }
+
+    /**
+     * Obtener dominio del sitio (sin protocolo)
+     */
+    private function get_site_domain() {
+        $site_url = home_url();
+        $parsed = parse_url($site_url);
+        return isset($parsed['host']) ? $parsed['host'] : $site_url;
     }
 }
