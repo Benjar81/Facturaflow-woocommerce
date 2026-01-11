@@ -45,7 +45,6 @@ class WCAFIP_License {
     private function __construct() {
         // Registrar hooks de administración
         add_action('admin_init', array($this, 'register_settings'));
-        add_action('admin_menu', array($this, 'add_license_menu'), 5);
         add_action('admin_notices', array($this, 'license_admin_notices'));
         add_action('wp_ajax_wcafip_activate_license', array($this, 'ajax_activate_license'));
         add_action('wp_ajax_wcafip_deactivate_license', array($this, 'ajax_deactivate_license'));
@@ -67,20 +66,6 @@ class WCAFIP_License {
         register_setting('wcafip-license', self::LICENSE_KEY_OPTION, array(
             'sanitize_callback' => 'sanitize_text_field'
         ));
-    }
-
-    /**
-     * Agregar menú de licencia
-     */
-    public function add_license_menu() {
-        add_submenu_page(
-            'wcafip-facturacion',
-            __('Licencia', 'wc-afip-facturacion'),
-            __('Licencia', 'wc-afip-facturacion'),
-            'manage_options',
-            'wcafip-license',
-            array($this, 'render_license_page')
-        );
     }
 
     /**
