@@ -1,0 +1,21 @@
+/* Admin Styles - WooCommerce AFIP Facturación */
+
+.wcafip-stats { display: flex; gap: 20px; margin: 20px 0; }
+.wcafip-stats .stat-box { background: #fff; border: 1px solid #ccd0d4; padding: 20px; border-radius: 4px; min-width: 150px; text-align: center; }
+.wcafip-stats .stat-number { display: block; font-size: 32px; font-weight: 600; color: #1e1e1e; }
+.wcafip-stats .stat-label { color: #646970; font-size: 13px; }
+
+.wcafip-filters { background: #fff; border: 1px solid #ccd0d4; padding: 15px; margin: 20px 0; border-radius: 4px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.wcafip-status { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 12px; font-weight: 500; }
+.wcafip-status-emitida { background: #c6e1c6; color: #5b841b; }
+.wcafip-status-pendiente { background: #f8dda7; color: #94660c; }
+.wcafip-status-error { background: #eba3a3; color: #761919; }
+
+.wcafip-log-type { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; }
+.wcafip-log-info { background: #d4edda; color: #155724; }
+.wcafip-log-error { background: #f8d7da; color: #721c24; }
+.wcafip-log-warning { background: #fff3cd; color: #856404; }
+
+.wcafip-factura-info p { margin: 8px 0; }
+#wcafip-test-result { margin-left: 10px; font-weight: 500; }
