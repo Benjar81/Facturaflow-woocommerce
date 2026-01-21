@@ -74,11 +74,18 @@ class WCAFIP_License {
     public function is_license_valid() {
         $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
 
+        // Si está marcada como activa, verificar si no está vencida localmente
         if ($status === 'active') {
+            // Verificar expiración local primero
+            if ($this->is_subscription_expired()) {
+                update_option(self::LICENSE_STATUS_OPTION, 'expired');
+                return false;
+            }
+
             $last_check = get_option(self::LICENSE_LAST_CHECK_OPTION, 0);
             $now = time();
 
-            // Verificar cada 1 hora
+            // Verificar cada 1 hora con el servidor
             if (($now - $last_check) > HOUR_IN_SECONDS) {
                 $this->verify_license_remote();
                 $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
@@ -86,6 +93,46 @@ class WCAFIP_License {
         }
 
         return $status === 'active';
+    }
+
+    /**
+     * Verificar si la suscripción está vencida
+     *
+     * @return bool True si está vencida
+     */
+    public function is_subscription_expired() {
+        $license_data = $this->get_license_data();
+
+        if (empty($license_data['expires_at'])) {
+            return false; // Si no hay fecha de expiración, no está vencida (licencia de por vida)
+        }
+
+        $expires_at = strtotime($license_data['expires_at']);
+
+        if (!$expires_at) {
+            return false; // Fecha inválida, asumir que no está vencida
+        }
+
+        return time() > $expires_at;
+    }
+
+    /**
+     * Obtener mensaje de estado de la licencia
+     *
+     * @return string Mensaje descriptivo del estado
+     */
+    public function get_license_status_message() {
+        $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
+
+        if ($status === 'expired' || $this->is_subscription_expired()) {
+            return __('Tu suscripción ha vencido. Por favor renuévala en FacturaFlow.net para continuar emitiendo facturas.', 'wc-afip-facturacion');
+        }
+
+        if ($status !== 'active') {
+            return __('Licencia inválida o no activada.', 'wc-afip-facturacion');
+        }
+
+        return '';
     }
 
     /**
@@ -107,28 +154,46 @@ class WCAFIP_License {
         ));
 
         if (is_wp_error($response)) {
-            // En caso de error de conexión, mantener el estado actual
-            // pero actualizar el timestamp para no reintentar inmediatamente
+            // En caso de error de conexión, verificar expiración local
             update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+
+            // Si está vencida localmente, marcar como expirada
+            if ($this->is_subscription_expired()) {
+                update_option(self::LICENSE_STATUS_OPTION, 'expired');
+                return false;
+            }
+
             return get_option(self::LICENSE_STATUS_OPTION, 'inactive') === 'active';
         }
 
-        // Verificar respuesta
-        $is_valid = !empty($response['valid']) || !empty($response['success']);
-
-        if (!$is_valid) {
-            // Licencia inválida, expirada o eliminada
-            update_option(self::LICENSE_STATUS_OPTION, 'inactive');
-            return false;
-        }
-
-        // Actualizar datos locales
-        update_option(self::LICENSE_STATUS_OPTION, 'active');
-        update_option(self::LICENSE_LAST_CHECK_OPTION, time());
-
+        // Actualizar datos de la licencia si vienen en la respuesta
         if (!empty($response['data'])) {
             update_option(self::LICENSE_DATA_OPTION, $response['data']);
         }
+
+        // Verificar respuesta del servidor
+        $is_valid = !empty($response['valid']) || !empty($response['success']);
+
+        // Verificar si el servidor indica que está expirada
+        $is_expired = !empty($response['expired']) ||
+                      (!empty($response['data']['status']) && $response['data']['status'] === 'expired');
+
+        if ($is_expired || $this->is_subscription_expired()) {
+            update_option(self::LICENSE_STATUS_OPTION, 'expired');
+            update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+            return false;
+        }
+
+        if (!$is_valid) {
+            // Licencia inválida o eliminada
+            update_option(self::LICENSE_STATUS_OPTION, 'inactive');
+            update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+            return false;
+        }
+
+        // Actualizar datos locales - licencia activa
+        update_option(self::LICENSE_STATUS_OPTION, 'active');
+        update_option(self::LICENSE_LAST_CHECK_OPTION, time());
 
         return true;
     }
@@ -355,8 +420,25 @@ class WCAFIP_License {
             }
         }
 
+        $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
+        $license_url = admin_url('admin.php?page=wcafip-facturacion');
+
+        // Verificar si la suscripción está vencida
+        if ($status === 'expired' || $this->is_subscription_expired()) {
+            ?>
+            <div class="notice notice-error">
+                <p>
+                    <strong><?php _e('WooCommerce AFIP Facturación', 'wc-afip-facturacion'); ?>:</strong>
+                    <?php _e('Tu suscripción ha vencido. No podrás emitir facturas hasta que renueves tu licencia.', 'wc-afip-facturacion'); ?>
+                    <a href="https://facturaflow.net" target="_blank" style="font-weight: bold;"><?php _e('Renovar suscripción', 'wc-afip-facturacion'); ?></a>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        // Verificar si la licencia no está activa
         if (!$this->is_license_valid()) {
-            $license_url = admin_url('admin.php?page=wcafip-license');
             ?>
             <div class="notice notice-warning is-dismissible">
                 <p>
@@ -367,6 +449,31 @@ class WCAFIP_License {
                 </p>
             </div>
             <?php
+            return;
+        }
+
+        // Aviso si la suscripción está por vencer (menos de 7 días)
+        $license_data = $this->get_license_data();
+        if (!empty($license_data['expires_at'])) {
+            $expires_at = strtotime($license_data['expires_at']);
+            $days_until_expiry = ($expires_at - time()) / DAY_IN_SECONDS;
+
+            if ($days_until_expiry > 0 && $days_until_expiry <= 7) {
+                ?>
+                <div class="notice notice-warning is-dismissible">
+                    <p>
+                        <strong><?php _e('WooCommerce AFIP Facturación', 'wc-afip-facturacion'); ?>:</strong>
+                        <?php
+                        printf(
+                            __('Tu suscripción vencerá en %d días. Renuévala para evitar interrupciones.', 'wc-afip-facturacion'),
+                            ceil($days_until_expiry)
+                        );
+                        ?>
+                        <a href="https://facturaflow.net" target="_blank"><?php _e('Renovar ahora', 'wc-afip-facturacion'); ?></a>
+                    </p>
+                </div>
+                <?php
+            }
         }
     }
 

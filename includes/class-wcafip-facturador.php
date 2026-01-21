@@ -87,7 +87,12 @@ class WCAFIP_Facturador {
         if (class_exists('WCAFIP_License')) {
             $license = WCAFIP_License::get_instance();
             if (!$license->verify_license_remote()) {
-                throw new Exception(__('Licencia inválida o expirada. Por favor verifica tu licencia en FacturaFlow.', 'wc-afip-facturacion'));
+                // Obtener mensaje específico del error
+                $error_message = $license->get_license_status_message();
+                if (empty($error_message)) {
+                    $error_message = __('Licencia inválida o expirada. Por favor verifica tu licencia en FacturaFlow.', 'wc-afip-facturacion');
+                }
+                throw new Exception($error_message);
             }
         }
 
