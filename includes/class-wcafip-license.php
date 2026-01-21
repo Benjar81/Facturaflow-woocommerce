@@ -124,6 +124,10 @@ class WCAFIP_License {
     public function get_license_status_message() {
         $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
 
+        if ($status === 'suspended') {
+            return __('Tu licencia está suspendida porque la suscripción ha vencido. Por favor renuévala en FacturaFlow.net para continuar emitiendo facturas.', 'wc-afip-facturacion');
+        }
+
         if ($status === 'expired' || $this->is_subscription_expired()) {
             return __('Tu suscripción ha vencido. Por favor renuévala en FacturaFlow.net para continuar emitiendo facturas.', 'wc-afip-facturacion');
         }
@@ -133,6 +137,15 @@ class WCAFIP_License {
         }
 
         return '';
+    }
+
+    /**
+     * Verificar si la licencia está suspendida
+     *
+     * @return bool True si está suspendida
+     */
+    public function is_license_suspended() {
+        return get_option(self::LICENSE_STATUS_OPTION, 'inactive') === 'suspended';
     }
 
     /**
@@ -176,6 +189,13 @@ class WCAFIP_License {
         $is_expired = !empty($response['expired']) ||
                       (!empty($response['data']['status']) && $response['data']['status'] === 'expired');
 
+        // Verificar si la licencia está suspendida (suscripción vencida)
+        $is_suspended = !empty($response['suspended']) ||
+                        (!empty($response['data']['status']) && $response['data']['status'] === 'suspended') ||
+                        (!empty($response['status']) && $response['status'] === 'suspended') ||
+                        (!empty($response['message']) && strpos(strtolower($response['message']), 'suspendida') !== false) ||
+                        (!empty($response['message']) && strpos(strtolower($response['message']), 'suspended') !== false);
+
         // Verificar si la licencia fue eliminada o no existe
         $is_deleted = !empty($response['deleted']) ||
                       (!empty($response['error']) && strpos(strtolower($response['error']), 'not found') !== false) ||
@@ -184,6 +204,12 @@ class WCAFIP_License {
         if ($is_deleted) {
             // La licencia fue eliminada del servidor - limpiar datos locales
             $this->clear_license_data();
+            return false;
+        }
+
+        if ($is_suspended) {
+            // Licencia suspendida por suscripción vencida
+            update_option(self::LICENSE_STATUS_OPTION, 'suspended');
             return false;
         }
 
@@ -466,6 +492,20 @@ class WCAFIP_License {
         $status = get_option(self::LICENSE_STATUS_OPTION, 'inactive');
         $license_url = admin_url('admin.php?page=wcafip-facturacion');
 
+        // Verificar si la licencia está suspendida
+        if ($status === 'suspended') {
+            ?>
+            <div class="notice notice-error">
+                <p>
+                    <strong><?php _e('WooCommerce AFIP Facturación', 'wc-afip-facturacion'); ?>:</strong>
+                    <?php _e('Tu licencia está suspendida porque la suscripción ha vencido. No podrás emitir facturas hasta que renueves tu plan.', 'wc-afip-facturacion'); ?>
+                    <a href="https://facturaflow.net" target="_blank" style="font-weight: bold;"><?php _e('Renovar plan', 'wc-afip-facturacion'); ?></a>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
         // Verificar si la suscripción está vencida
         if ($status === 'expired' || $this->is_subscription_expired()) {
             ?>
@@ -607,6 +647,12 @@ class WCAFIP_License {
                     <?php if ($license_status === 'active'): ?>
                         <span class="dashicons dashicons-yes-alt"></span>
                         <span><?php _e('Licencia Activa', 'wc-afip-facturacion'); ?></span>
+                    <?php elseif ($license_status === 'suspended'): ?>
+                        <span class="dashicons dashicons-dismiss"></span>
+                        <span><?php _e('Licencia Suspendida', 'wc-afip-facturacion'); ?></span>
+                    <?php elseif ($license_status === 'expired'): ?>
+                        <span class="dashicons dashicons-dismiss"></span>
+                        <span><?php _e('Licencia Vencida', 'wc-afip-facturacion'); ?></span>
                     <?php else: ?>
                         <span class="dashicons dashicons-warning"></span>
                         <span><?php _e('Licencia Inactiva', 'wc-afip-facturacion'); ?></span>
@@ -799,6 +845,11 @@ class WCAFIP_License {
             .wcafip-license-status.inactive {
                 background: #fff3cd;
                 color: #856404;
+            }
+            .wcafip-license-status.suspended,
+            .wcafip-license-status.expired {
+                background: #f8d7da;
+                color: #721c24;
             }
             .wcafip-license-info {
                 margin-bottom: 20px;
