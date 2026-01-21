@@ -166,10 +166,8 @@ class WCAFIP_License {
             return get_option(self::LICENSE_STATUS_OPTION, 'inactive') === 'active';
         }
 
-        // Actualizar datos de la licencia si vienen en la respuesta
-        if (!empty($response['data'])) {
-            update_option(self::LICENSE_DATA_OPTION, $response['data']);
-        }
+        // Actualizar timestamp de verificación
+        update_option(self::LICENSE_LAST_CHECK_OPTION, time());
 
         // Verificar respuesta del servidor
         $is_valid = !empty($response['valid']) || !empty($response['success']);
@@ -178,24 +176,46 @@ class WCAFIP_License {
         $is_expired = !empty($response['expired']) ||
                       (!empty($response['data']['status']) && $response['data']['status'] === 'expired');
 
+        // Verificar si la licencia fue eliminada o no existe
+        $is_deleted = !empty($response['deleted']) ||
+                      (!empty($response['error']) && strpos(strtolower($response['error']), 'not found') !== false) ||
+                      (!empty($response['message']) && strpos(strtolower($response['message']), 'no encontrada') !== false);
+
+        if ($is_deleted) {
+            // La licencia fue eliminada del servidor - limpiar datos locales
+            $this->clear_license_data();
+            return false;
+        }
+
         if ($is_expired || $this->is_subscription_expired()) {
             update_option(self::LICENSE_STATUS_OPTION, 'expired');
-            update_option(self::LICENSE_LAST_CHECK_OPTION, time());
             return false;
         }
 
         if (!$is_valid) {
             // Licencia inválida o eliminada
             update_option(self::LICENSE_STATUS_OPTION, 'inactive');
-            update_option(self::LICENSE_LAST_CHECK_OPTION, time());
             return false;
         }
 
         // Actualizar datos locales - licencia activa
         update_option(self::LICENSE_STATUS_OPTION, 'active');
-        update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+
+        if (!empty($response['data'])) {
+            update_option(self::LICENSE_DATA_OPTION, $response['data']);
+        }
 
         return true;
+    }
+
+    /**
+     * Limpiar todos los datos de licencia locales
+     */
+    public function clear_license_data() {
+        delete_option(self::LICENSE_KEY_OPTION);
+        update_option(self::LICENSE_STATUS_OPTION, 'inactive');
+        delete_option(self::LICENSE_DATA_OPTION);
+        delete_option(self::LICENSE_LAST_CHECK_OPTION);
     }
 
     /**
@@ -338,14 +358,36 @@ class WCAFIP_License {
             );
         }
 
+        // Verificar si la licencia fue eliminada o no existe
+        $is_deleted = !empty($response['deleted']) ||
+                      (!empty($response['error']) && strpos(strtolower($response['error']), 'not found') !== false) ||
+                      (!empty($response['message']) && strpos(strtolower($response['message']), 'no encontrada') !== false) ||
+                      (!empty($response['message']) && strpos(strtolower($response['message']), 'not found') !== false);
+
+        if ($is_deleted) {
+            // La licencia fue eliminada del servidor - limpiar datos locales
+            $this->clear_license_data();
+            return array(
+                'success' => false,
+                'status' => 'inactive',
+                'message' => __('La licencia ha sido eliminada o no existe.', 'wc-afip-facturacion')
+            );
+        }
+
         // Verificar respuesta (puede ser 'valid' o 'success')
         $is_valid = !empty($response['valid']) || !empty($response['success']);
         $status = $is_valid ? 'active' : 'inactive';
-        update_option(self::LICENSE_STATUS_OPTION, $status);
-        update_option(self::LICENSE_LAST_CHECK_OPTION, time());
 
-        if (!empty($response['data'])) {
-            update_option(self::LICENSE_DATA_OPTION, $response['data']);
+        if (!$is_valid) {
+            // Si la licencia no es válida, limpiar datos locales
+            $this->clear_license_data();
+        } else {
+            update_option(self::LICENSE_STATUS_OPTION, $status);
+            update_option(self::LICENSE_LAST_CHECK_OPTION, time());
+
+            if (!empty($response['data'])) {
+                update_option(self::LICENSE_DATA_OPTION, $response['data']);
+            }
         }
 
         return array(
@@ -360,7 +402,8 @@ class WCAFIP_License {
      * Verificación programada de licencia
      */
     public function scheduled_license_check() {
-        $this->check_license();
+        // Usar verify_license_remote para detectar licencias eliminadas
+        $this->verify_license_remote();
     }
 
     /**
