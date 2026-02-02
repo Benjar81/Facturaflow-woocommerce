@@ -2,5 +2,6 @@
 .wcafip-cuit-validation { margin-top: 5px; font-size: 13px; }
 .wcafip-cuit-validation.valid { color: #46b450; }
 .wcafip-cuit-validation.invalid { color: #dc3232; }
-.wcafip-razon-social-field { display: none; }
-.wcafip-razon-social-field.visible { display: block; }
+.wcafip-cuit-validation.loading { color: #666; }
+.wcafip-razon-social-field,
+.wcafip-condicion-iva-field { display: none; }

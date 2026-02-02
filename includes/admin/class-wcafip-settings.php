@@ -51,6 +51,7 @@ class WCAFIP_Settings {
         // Sección: Facturación
         add_settings_section('wcafip_facturacion', __('Configuración de Facturación', 'wc-afip-facturacion'), null, 'wcafip-settings');
         
+        register_setting('wcafip-settings', 'wcafip_permitir_factura_a');
         register_setting('wcafip-settings', 'wcafip_facturacion_automatica');
         register_setting('wcafip-settings', 'wcafip_estados_facturar');
         register_setting('wcafip-settings', 'wcafip_enviar_email');
@@ -217,6 +218,16 @@ class WCAFIP_Settings {
                 <h2><?php _e('Configuración de Facturación', 'wc-afip-facturacion'); ?></h2>
                 <table class="form-table">
                     <tr>
+                        <th><label for="wcafip_permitir_factura_a"><?php _e('Permitir Factura A (CUIT)', 'wc-afip-facturacion'); ?></label></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="wcafip_permitir_factura_a" id="wcafip_permitir_factura_a" value="yes" <?php checked(get_option('wcafip_permitir_factura_a', 'yes'), 'yes'); ?>>
+                                <?php _e('Permitir que el cliente ingrese CUIT para recibir Factura A', 'wc-afip-facturacion'); ?>
+                            </label>
+                            <p class="description"><?php _e('Si se desactiva, solo se mostrará el campo DNI y se emitirá Factura B o C según tu condición fiscal.', 'wc-afip-facturacion'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th><label for="wcafip_facturacion_automatica"><?php _e('Facturación Automática', 'wc-afip-facturacion'); ?></label></th>
                         <td>
                             <label>
@@ -300,6 +311,7 @@ class WCAFIP_Settings {
         }
         
         // Checkboxes
+        update_option('wcafip_permitir_factura_a', isset($_POST['wcafip_permitir_factura_a']) ? 'yes' : 'no');
         update_option('wcafip_facturacion_automatica', isset($_POST['wcafip_facturacion_automatica']) ? 'yes' : 'no');
         update_option('wcafip_enviar_email', isset($_POST['wcafip_enviar_email']) ? 'yes' : 'no');
         
